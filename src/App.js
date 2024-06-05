@@ -48,8 +48,8 @@ function FetchStops({ coords }) {
       })})
       .then(response => {
         setStops(response.data)
-        console.log("nearbyStops")
-        console.log(nearbyStops.data)
+        // console.log("nearbyStops")
+        // console.log(nearbyStops.data)
       })
       .then(response => {
         
@@ -66,10 +66,10 @@ function FetchStops({ coords }) {
         setStopData(stopData => ({
           ...stopData, [stop.id] : response.data.data
         }))
-        console.log(stopData)
+        // console.log(stopData)
         response.data.data.forEach(line => {
           if (!(line.id in trackedLines)) {
-            trackedLines[line.id] = stop.id
+            // trackedLines[line.id] = stop.id
             if (!(stop.id in trackedStops)) {
               //trackedStops[stop.id] = stop
               setTrackedStop(stops => ({
@@ -77,9 +77,9 @@ function FetchStops({ coords }) {
               }))
             }
           }})
-        console.log(stop.attributes.name);
-        console.log(trackedLines)
-        console.log(trackedStops)
+        // console.log(stop.attributes.name);
+        // console.log(trackedLines)
+        // console.log(trackedStops)
       })
     })
   }, [nearbyStops])
@@ -96,33 +96,143 @@ function FetchStops({ coords }) {
 }
 
 function TrackStops({ stop, stopData }) {
-  const [stopState, setStopState] = useState({});
-  console.log(stop.attributes.name)
-  console.log(stopData)
+  const controller = new AbortController();
+  const signal = controller.signal;
+  const [stopState, setStopState] = useState({ });
+  const [ready, setReady] = useState(false);
+  const [routes, setRoutes] = useState({ });
 
-  // useEffect(() => {
-  //   axios.get('https://api-v3.mbta.com/predictions/?', {
-  //     responseType: 'stream',
-  //     params: {
-  //       api_key: MBTA_API_KEY,
-  //       sort: 'arrival_time',
-  //       'filter[stop]': stop.id,
-  //       'page[limit]': 5
-  //     }
-  //   }).then(response => {
-  //     //console.log(response.data)
-  //   })
-  // })
+  useMountEffect(() => {
+    var arr = {}
+    stopData.forEach(item => {
+      arr[item.id] = item
+    })
+    setRoutes(arr)
+  })
+
+  console.log('routes')
+  console.log(routes)
+
+  useMountEffect(() => {
+    const fetchStream = async () => {
+      const response = await fetch('https://api-v3.mbta.com/predictions/?' + new URLSearchParams({
+        api_key: MBTA_API_KEY,
+        sort: 'arrival_time',
+        'filter[stop]': stop.id,
+        'page[limit]': 5
+        }),{
+        signal: signal,
+        headers: {
+          'accept' : 'text/event-stream'
+        },
+      })
+      
+      const reader = response.body.getReader();
+      
+      while (true) {
+        const { done, value } = await reader.read();
+      
+        if (done) {
+          console.log("Stream complete");
+          break;
+        }
+
+        // const message = JSON.parse(('{' + value.toString() + '}'))
+        const message = new TextDecoder().decode(value)
+
+        var parsing = message.split('\n\n')
+        var parsed = {}
+
+        // this is fragile and horrible
+        parsing.forEach((event, index) => {
+          if (event == '') {
+            return
+          }
+
+          try {
+            var split = event.split('\n')
+
+            parsed = {
+              event: split[0].replace(/^(event: )/, ''),
+              data: JSON.parse(split[1].replace(/^(data: )/, ''))
+            }
+          } catch(e) {
+            console.log(e)
+            console.log(event)
+          }
+        })
+        
+        // console.log(stop.id)
+        console.log(parsed)
+
+        switch(parsed.event) {
+          case 'reset':
+            console.log('reset')
+            setStopState({})
+            parsed.data.forEach(item => {
+              setStopState(stopState => ({
+                ...stopState, [item.id] : item
+              }))
+            })
+            setReady(true)
+            break;
+          case 'add':
+            console.log('add')
+            break;
+          case 'update':
+            console.log('update')
+            break;
+          case 'remove':
+            console.log('remove')
+            break;
+        }
+      }
+    }
+    
+    fetchStream();
+
+    // return () => {
+    //   console.log('abort');
+    //   controller.abort();
+    // }
+  }, [stop])
 
   return (
     <div>
+      <hr></hr>
       <h4>
         {stop.attributes.name}
       </h4>
-      <div class="row">
+      <div className="row text-center justify-content-center">
         {stopData.map(line => 
-          <span id="{stop.id}-{line.id}" class="g-2">
+          <div key={stop.id + '-' + line.id} id={stop.id + '-' + line.id} className="col-3 g-2">
             {line.id}
+          </div>
+        )}
+      </div>
+      <hr></hr>
+      <div>
+        {ready ? (
+          Object.entries(stopState).map(([key, value]) => 
+            <div key={key} id={key}>
+              <span className='p-2'>
+                {value.relationships.route.data.id}
+              </span>
+              <span className='p-2'>
+                {
+                  routes[value.relationships.route.data.id].attributes.direction_names[value.attributes.direction_id]
+                } to {
+                  routes[value.relationships.route.data.id].attributes.direction_destinations[value.attributes.direction_id]
+                  }
+              </span>
+              <span className='p-2'>
+                {value.attributes.arrival_time}
+              </span>
+            </div>
+          )
+        ) : (
+          <span>
+            ...
           </span>
         )}
       </div>
@@ -133,11 +243,11 @@ function TrackStops({ stop, stopData }) {
 
 function App() {
   return (
-    <div className="App" class="container">
-      <header>
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
+    <div className="App container">
+      <header className='pb-4'>
+        <h6>
+          let's hope it works better this time
+        </h6>
       </header>
       <main>
         <Location />
