@@ -1,3 +1,14 @@
+A basic MBTA bus/train tracker, designed to run on a kiosk-style system (ie an old tablet) with minimal interaction.
+
+Goals:
+- [x] use browser geolocation API and `/stops?` to find all nearby stops.
+- [ ] use `/routes?` to winnow  the list of stops to only the nearest ones served by unique lines (ie: if there are multiple stops visited only by inbound 57s, only one of those stops should be included).
+- [x] use the streaming `/predictions?` api to track predicted arrivals at each relevant stop ...
+- [ ] ... and do this with a single open socket.
+- [x] display information from the streaming api ...
+- [ ] ... and make the entire thing look pretty.
+- [ ] learn how to code in React.
+
 # Getting Started with Create React App
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
