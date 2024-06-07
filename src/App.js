@@ -1,4 +1,3 @@
-import logo from './logo.svg';
 import './App.css';
 import { useGeolocated } from "react-geolocated";
 import React, { useRef, useEffect, useState } from "react";
@@ -22,7 +21,7 @@ function Location() {
     <div>Geolocation is not enabled</div>
   ) : coords ? (
     <div>
-      {coords.latitude}, {coords.longitude}
+      {coords.latitude}, {coords.longitude}<br/>
       <FetchStops coords={{ latitude: coords.latitude, longitude: coords.longitude}}/>
     </div>
   ) : (
@@ -43,44 +42,46 @@ function FetchStops({ coords }) {
         sort: 'distance',
         latitude: coords.latitude,
         longitude: coords.longitude,
-        include : 'route',
-        'page[limit]' : 5
+        include : 'parent_station',
+        'page[limit]' : 10,
+        'fields[stop]' : 'name'
       })})
       .then(response => {
         setStops(response.data)
-        // console.log("nearbyStops")
-        // console.log(nearbyStops.data)
-      })
-      .then(response => {
-        
-      })
+        console.log(response.data)
+      });
     });
 
   useEffect(() => {
     nearbyStops.data.map(stop => {
-      axios.get('https://api-v3.mbta.com/routes?', { params: {
-        api_key: MBTA_API_KEY,
-        'filter[stop]' : stop.id
-      }})
-      .then(response => {
-        setStopData(stopData => ({
-          ...stopData, [stop.id] : response.data.data
-        }))
-        // console.log(stopData)
-        response.data.data.forEach(line => {
-          if (!(line.id in trackedLines)) {
-            // trackedLines[line.id] = stop.id
-            if (!(stop.id in trackedStops)) {
-              //trackedStops[stop.id] = stop
-              setTrackedStop(stops => ({
-                ...stops, [stop.id] : stop
-              }))
-            }
-          }})
-        // console.log(stop.attributes.name);
-        // console.log(trackedLines)
-        // console.log(trackedStops)
-      })
+      if (!stop.relationships.parent_station.data) {
+        axios.get('https://api-v3.mbta.com/routes?', { params: {
+          api_key: MBTA_API_KEY,
+          'filter[stop]' : stop.id,
+          'fields[stop]' : 'direction_names,direction_destinations,short_name,type,color',
+        }})
+        .then(response => {
+          setStopData(stopData => ({
+            ...stopData, [stop.id] : response.data.data
+          }))
+          // console.log(stopData)
+          response.data.data.forEach(line => {
+            if (!(line.id in trackedLines)) {
+              // trackedLines[line.id] = stop.id
+              if (!(stop.id in trackedStops)) {
+                //trackedStops[stop.id] = stop
+                setTrackedStop(stops => ({
+                  ...stops, [stop.id] : stop
+                }))
+              }
+            }})
+          // console.log(stop.attributes.name);
+          // console.log(trackedLines)
+          // console.log(trackedStops)
+        
+        }) 
+      } else (console.log(stop.relationships.parent_station.data))
+      return(true)
     })
   }, [nearbyStops])
 
@@ -98,7 +99,7 @@ function FetchStops({ coords }) {
 function TrackStops({ stop, stopData }) {
   const controller = new AbortController();
   const signal = controller.signal;
-  const [stopState, setStopState] = useState({ });
+  const [stopState, setStopState] = useState({});
   const [ready, setReady] = useState(false);
   const [routes, setRoutes] = useState({ });
 
@@ -109,9 +110,6 @@ function TrackStops({ stop, stopData }) {
     })
     setRoutes(arr)
   })
-
-  console.log('routes')
-  console.log(routes)
 
   useMountEffect(() => {
     const fetchStream = async () => {
@@ -145,7 +143,7 @@ function TrackStops({ stop, stopData }) {
 
         // this is fragile and horrible
         parsing.forEach((event, index) => {
-          if (event == '') {
+          if (event === '') {
             return
           }
 
@@ -178,12 +176,21 @@ function TrackStops({ stop, stopData }) {
             break;
           case 'add':
             console.log('add')
+            console.log(stopState)
+            setStopState(stopState => ({
+              ...stopState, [parsed.data.id] : parsed.data
+            }))
             break;
           case 'update':
             console.log('update')
+            setStopState(stopState => ({
+              ...stopState, [parsed.data.id] : parsed.data
+            }))
             break;
           case 'remove':
             console.log('remove')
+            break;
+          default:
             break;
         }
       }
@@ -197,12 +204,18 @@ function TrackStops({ stop, stopData }) {
     // }
   }, [stop])
 
+  var now = new Date();
+  var hourFuture = (new Date()).setHours(now.getHours() + 1)
+
   return (
     <div>
       <hr></hr>
       <h4>
         {stop.attributes.name}
       </h4>
+      <h6>
+        {stop.id}
+      </h6>
       <div className="row text-center justify-content-center">
         {stopData.map(line => 
           <div key={stop.id + '-' + line.id} id={stop.id + '-' + line.id} className="col-3 g-2">
@@ -211,33 +224,75 @@ function TrackStops({ stop, stopData }) {
         )}
       </div>
       <hr></hr>
-      <div>
-        {ready ? (
-          Object.entries(stopState).map(([key, value]) => 
-            <div key={key} id={key}>
-              <span className='p-2'>
-                {value.relationships.route.data.id}
-              </span>
-              <span className='p-2'>
-                {
-                  routes[value.relationships.route.data.id].attributes.direction_names[value.attributes.direction_id]
-                } to {
-                  routes[value.relationships.route.data.id].attributes.direction_destinations[value.attributes.direction_id]
-                  }
-              </span>
-              <span className='p-2'>
-                {value.attributes.arrival_time}
-              </span>
-            </div>
-          )
-        ) : (
-          <span>
-            ...
-          </span>
-        )}
-      </div>
+      <table className='table'>
+        <tbody>
+          {ready ? (
+            Object.entries(stopState).map(([key, value]) => {
+              var arrival = new Date(value.attributes.arrival_time)
+              if ((arrival > now) && (arrival < hourFuture )) {
+                return (
+                  <tr key={key} id={key}>
+                    <td className='p-2'>
+                      {value.relationships.route.data.id}
+                    </td>
+                    <td className='p-2'>
+                      {
+                        routes[value.relationships.route.data.id].attributes.direction_names[value.attributes.direction_id]
+                      } to {
+                        routes[value.relationships.route.data.id].attributes.direction_destinations[value.attributes.direction_id]
+                      }
+                    </td>
+                    <td className='p-2'>
+                      <TimeUntil date={value.attributes.arrival_time}></TimeUntil>
+                    </td>
+                  </tr>
+                )
+              }
+              return (false)
+            }
+          )) : (
+            <tr>
+              <td>
+                ...
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
     
+  )
+}
+
+function TimeUntil({ date }) {
+  const [message, setMessage] = useState("")
+
+  useEffect(() => {
+    const targetTime = new Date(date)
+    const interval = setInterval(function step() {
+      var seconds = Math.floor((targetTime - (new Date()))/1000);
+
+      if (seconds < 0) {
+        setMessage('ghost bus!');
+      } else if (seconds < 30) {
+        setMessage('arriving now');
+      } else if (seconds < 60) {
+        setMessage('approaching');
+      } else {
+        setMessage('in ' + [Math.floor(seconds / 60)] + ' minute' + [(Math.floor(seconds/60) > 1) ? 's' : '']);
+      }
+
+      return step;
+    }(), 15000);
+    return () => {
+      clearInterval(interval);
+    };
+  }, [date]);
+
+  return (
+    <span>
+      {message}
+    </span>
   )
 }
 
